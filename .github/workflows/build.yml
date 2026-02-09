@@ -1,0 +1,59 @@
+name: Rikka V5 Final Build
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+
+      - name: Setup Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm curl git
+
+      - name: Setup KernelSU
+        run: |
+          # Patching KernelSU into the source
+          # Using v0.9.5 for best 4.14 compatibility
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+
+      - name: Setup Toolchain
+        run: |
+          mkdir toolchain
+          cd toolchain
+          wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
+          tar -xf master.tar.gz
+          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
+
+      - name: Compile Kernel
+        run: |
+          # Use the config you provided
+          make O=out ARCH=arm64 raphael_defconfig
+          
+          make -j$(nproc --all) O=out \
+               ARCH=arm64 \
+               CC=clang \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+               LD=ld.lld \
+               AR=llvm-ar \
+               NM=llvm-nm \
+               OBJCOPY=llvm-objcopy \
+               OBJDUMP=llvm-objdump \
+               STRIP=llvm-strip
+
+      - name: Verify Build Strings
+        run: |
+          echo "Checking Localversion and KSU..."
+          grep "CONFIG_LOCALVERSION=\"-perf-g758bb7ef5-dirty\"" out/.config
+          grep "CONFIG_KSU=y" out/.config
+
+      - name: Upload Image
+        uses: actions/upload-artifact@v3
+        with:
+          name: Rikka-V5-KSU-Final
+          path: out/arch/arm64/boot/Image.gz-dtb
