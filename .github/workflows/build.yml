@@ -23,37 +23,40 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          # Add toolchain to PATH so the compiler check can find it
-          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
-          echo "TOOLCHAIN_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
+          # We do NOT add this to GITHUB_PATH to prevent it from breaking the host build
+          echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
       - name: Compile Kernel
         run: |
           mkdir -p out
+          
+          # Force the use of the runner's native tools for host scripts
+          # This prevents the 'unknown type 0x13' error
+          export HOSTCC=gcc
+          export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # Step 1: Generate Config
+          # 1. Config Phase (Uses System Tools)
           make O=out ARCH=arm64 raphael_defconfig \
-               HOSTCC=gcc \
-               HOSTCXX=g++ \
+               HOSTCC=$HOSTCC \
+               HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # Step 2: Main Build
-          # We use the full toolchain here to avoid the Stack Protector error
+          # 2. Build Phase (Uses Proton for Kernel, System for Host)
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
-               CC=clang \
+               CC=${{ env.PROTON_PATH }}/clang \
                CLANG_TRIPLE=aarch64-linux-gnu- \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               LD=ld.lld \
-               AR=llvm-ar \
-               NM=llvm-nm \
-               OBJCOPY=llvm-objcopy \
-               OBJDUMP=llvm-objdump \
-               STRIP=llvm-strip \
-               HOSTCC=gcc \
-               HOSTCXX=g++ \
+               LD=${{ env.PROTON_PATH }}/ld.lld \
+               AR=${{ env.PROTON_PATH }}/llvm-ar \
+               NM=${{ env.PROTON_PATH }}/llvm-nm \
+               OBJCOPY=${{ env.PROTON_PATH }}/llvm-objcopy \
+               OBJDUMP=${{ env.PROTON_PATH }}/llvm-objdump \
+               STRIP=${{ env.PROTON_PATH }}/llvm-strip \
+               HOSTCC=$HOSTCC \
+               HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
       - name: Upload Finished Kernel
