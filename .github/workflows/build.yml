@@ -19,17 +19,18 @@ jobs:
 
       - name: Manual KernelSU Integration
         run: |
-          # 1. Download KernelSU v0.9.5 (Best for 4.14)
-          git clone https://github.com/tiann/KernelSU KernelSU
-          cd KernelSU && git checkout v0.9.5 && cd ..
+          # 1. Download KernelSU v0.9.5
+          # We clone it into the drivers directory for better compatibility with 4.14
+          cd drivers
+          git clone https://github.com/tiann/KernelSU kernelsu
+          cd kernelsu && git checkout v0.9.5 && cd ../..
 
-          # 2. Add KernelSU to arch/arm64/Kconfig
-          # This puts the KSU options in your kernel configuration
-          echo 'source "KernelSU/Kconfig"' >> arch/arm64/Kconfig
+          # 2. Add to drivers/Kconfig (This is safer than arch/arm64/Kconfig)
+          # We use 'sed' to insert the line before the last 'endif'
+          sed -i '/endif/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-          # 3. Add KernelSU to the root Makefile
-          # This tells the compiler to actually enter the directory and build KSU
-          echo 'obj-y += KernelSU/' >> Makefile
+          # 3. Add to drivers/Makefile
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
 
       - name: Setup Toolchain
         run: |
@@ -42,17 +43,16 @@ jobs:
       - name: Compile Kernel
         run: |
           mkdir -p out
-          # Use system linker for host tools to bypass the libc 0x13 error
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
           # Step 1: Generate Config
+          # We use the system CC for the config phase
           make O=out ARCH=arm64 raphael_defconfig \
                HOSTCC=gcc \
                HOSTCXX=g++ \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
           # Step 2: Main Build
-          # Direct pathing to toolchain ensures system tools don't interfere with kernel code
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC=${{ env.TOOLCHAIN_PATH }}/clang \
