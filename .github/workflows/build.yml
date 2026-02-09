@@ -17,9 +17,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm curl git
 
-      - name: Setup KernelSU
+      - name: Setup KernelSU (Manual Method)
         run: |
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+          # 1. Clean up any failed script attempts
+          rm -rf drivers/staging/kernelsu
+          
+          # 2. Clone KernelSU directly into the root
+          git clone https://github.com/tiann/KernelSU KernelSU
+          cd KernelSU
+          git checkout v0.9.5
+          cd ..
+
+          # 3. Manually add KernelSU to the Kconfig/Makefile (The reliable way)
+          # Add to the bottom of the main Kconfig
+          echo 'source "KernelSU/Kconfig"' >> arch/arm64/Kconfig
+          # Add to the main Makefile
+          echo 'obj-y += KernelSU/' >> Makefile
 
       - name: Setup Toolchain
         run: |
@@ -27,26 +40,29 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          # We define the toolchain path but DON'T add it to GITHUB_PATH yet 
-          # to prevent it from breaking the 'make' setup phase.
           echo "TOOLCHAIN_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
       - name: Compile Kernel
         run: |
           mkdir -p out
           
-          # 1. Generate Config using SYSTEM tools first to avoid the ld error
-          make O=out ARCH=arm64 raphael_defconfig
+          # Force the use of system tools for 'fixdep' to avoid libc error
+          export HOSTLDFLAGS="-fuse-ld=bfd"
+
+          # 1. Generate Config
+          make O=out ARCH=arm64 raphael_defconfig \
+               HOSTCC=gcc \
+               HOSTCXX=g++ \
+               HOSTLDFLAGS="$HOSTLDFLAGS"
 
           # 2. Main Build
-          # We manually point to the Proton Clang binaries for the kernel code 
-          # while letting the host use system GCC for scripts/basic/fixdep.
+          # We use absolute paths for the Proton Clang tools
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC=${{ env.TOOLCHAIN_PATH }}/clang \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
                LD=${{ env.TOOLCHAIN_PATH }}/ld.lld \
                AR=${{ env.TOOLCHAIN_PATH }}/llvm-ar \
                NM=${{ env.TOOLCHAIN_PATH }}/llvm-nm \
@@ -54,7 +70,8 @@ jobs:
                OBJDUMP=${{ env.TOOLCHAIN_PATH }}/llvm-objdump \
                STRIP=${{ env.TOOLCHAIN_PATH }}/llvm-strip \
                HOSTCC=gcc \
-               HOSTCXX=g++
+               HOSTCXX=g++ \
+               HOSTLDFLAGS="$HOSTLDFLAGS"
 
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
