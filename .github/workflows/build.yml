@@ -9,7 +9,7 @@ jobs:
       - name: Checkout V5 Source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1 # Faster checkout; only 0 if KSU patch fails
 
       - name: Setup Environment
         run: |
@@ -27,21 +27,20 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          # Add the toolchain to PATH
           echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
 
       - name: Compile Kernel
         run: |
-          # 1. Prepare the output directory
           mkdir -p out
+          
+          # Fix for the 'unknown type 0x13' error: 
+          # We tell the build to use the system linker (bfd) for host tools.
+          export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # 2. Generate the config using Host GCC for tools
           make O=out ARCH=arm64 raphael_defconfig \
                HOSTCC=gcc \
                HOSTCXX=g++
 
-          # 3. Main Build process
-          # We force HOSTCC=gcc so it uses the server's native tools for scripts/basic/fixdep
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC=clang \
@@ -56,7 +55,7 @@ jobs:
                OBJCOPY=llvm-objcopy \
                OBJDUMP=llvm-objdump \
                STRIP=llvm-strip \
-               CONFIG_NO_ERROR_ON_MISMATCH=y
+               HOSTLDFLAGS="$HOSTLDFLAGS"
 
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
