@@ -9,7 +9,7 @@ jobs:
       - name: Checkout V5 Source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1 # Faster checkout; only 0 if KSU patch fails
+          fetch-depth: 1
 
       - name: Setup Environment
         run: |
@@ -23,39 +23,38 @@ jobs:
 
       - name: Setup Toolchain
         run: |
-          mkdir toolchain
+          mkdir -p toolchain
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
+          # We define the toolchain path but DON'T add it to GITHUB_PATH yet 
+          # to prevent it from breaking the 'make' setup phase.
+          echo "TOOLCHAIN_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
       - name: Compile Kernel
         run: |
           mkdir -p out
           
-          # Fix for the 'unknown type 0x13' error: 
-          # We tell the build to use the system linker (bfd) for host tools.
-          export HOSTLDFLAGS="-fuse-ld=bfd"
+          # 1. Generate Config using SYSTEM tools first to avoid the ld error
+          make O=out ARCH=arm64 raphael_defconfig
 
-          make O=out ARCH=arm64 raphael_defconfig \
-               HOSTCC=gcc \
-               HOSTCXX=g++
-
+          # 2. Main Build
+          # We manually point to the Proton Clang binaries for the kernel code 
+          # while letting the host use system GCC for scripts/basic/fixdep.
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
-               CC=clang \
-               HOSTCC=gcc \
-               HOSTCXX=g++ \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
+               CC=${{ env.TOOLCHAIN_PATH }}/clang \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               LD=ld.lld \
-               AR=llvm-ar \
-               NM=llvm-nm \
-               OBJCOPY=llvm-objcopy \
-               OBJDUMP=llvm-objdump \
-               STRIP=llvm-strip \
-               HOSTLDFLAGS="$HOSTLDFLAGS"
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               LD=${{ env.TOOLCHAIN_PATH }}/ld.lld \
+               AR=${{ env.TOOLCHAIN_PATH }}/llvm-ar \
+               NM=${{ env.TOOLCHAIN_PATH }}/llvm-nm \
+               OBJCOPY=${{ env.TOOLCHAIN_PATH }}/llvm-objcopy \
+               OBJDUMP=${{ env.TOOLCHAIN_PATH }}/llvm-objdump \
+               STRIP=${{ env.TOOLCHAIN_PATH }}/llvm-strip \
+               HOSTCC=gcc \
+               HOSTCXX=g++
 
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
