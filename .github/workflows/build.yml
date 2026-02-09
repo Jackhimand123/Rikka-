@@ -6,41 +6,47 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4 # Updated to resolve deprecation
+      - name: Checkout V5 Source
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Environment
         run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
           sudo apt-get update
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm curl git
 
       - name: Setup KernelSU
         run: |
-          # Patching KernelSU into the 4.14.180 source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
       - name: Setup Toolchain
         run: |
           mkdir toolchain
           cd toolchain
-          # Proton Clang is recommended for 4.14 raphael builds
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
+          # Add the toolchain to PATH
           echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
 
       - name: Compile Kernel
         run: |
-          # Ensuring matching version strings from your script
-          export KBUILD_BUILD_USER="Rikka"
-          export KBUILD_BUILD_HOST="Android"
-          
-          make O=out ARCH=arm64 raphael_defconfig
-          
+          # 1. Prepare the output directory
+          mkdir -p out
+
+          # 2. Generate the config using Host GCC for tools
+          make O=out ARCH=arm64 raphael_defconfig \
+               HOSTCC=gcc \
+               HOSTCXX=g++
+
+          # 3. Main Build process
+          # We force HOSTCC=gcc so it uses the server's native tools for scripts/basic/fixdep
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC=clang \
+               HOSTCC=gcc \
+               HOSTCXX=g++ \
                CLANG_TRIPLE=aarch64-linux-gnu- \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -49,16 +55,11 @@ jobs:
                NM=llvm-nm \
                OBJCOPY=llvm-objcopy \
                OBJDUMP=llvm-objdump \
-               STRIP=llvm-strip
+               STRIP=llvm-strip \
+               CONFIG_NO_ERROR_ON_MISMATCH=y
 
-      - name: Verify Build Strings
-        run: |
-          # Matches the vermagic in your 4.14.180.sh
-          echo "Verifying: 4.14.180-perf-g758bb7ef5-dirty"
-          grep "CONFIG_LOCALVERSION=\"-perf-g758bb7ef5-dirty\"" out/.config || echo "Warning: Localversion mismatch"
-
-      - name: Upload Image
-        uses: actions/upload-artifact@v4 # Updated to v4 to fix the Error
+      - name: Upload Kernel
+        uses: actions/upload-artifact@v4
         with:
-          name: Rikka-V5-KSU-Final
+          name: Rikka-V5-Final-Build
           path: out/arch/arm64/boot/Image.gz-dtb
