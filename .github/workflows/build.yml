@@ -1,4 +1,4 @@
-name: Rikka V5 Clean Build
+name: Rikka V5 Final Build
 on:
   workflow_dispatch:
 
@@ -23,6 +23,8 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
+          # Add to GITHUB_PATH so 'make' can find aarch64-linux-gnu-ld
+          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
           echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
       - name: Compile Kernel
@@ -31,6 +33,9 @@ jobs:
           export HOSTCC=gcc
           export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
+          
+          # The magic flag Clang is screaming for:
+          export KBUILD_CFLAGS="-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang"
 
           # 1. Generate Config
           make O=out ARCH=arm64 raphael_defconfig \
@@ -40,29 +45,27 @@ jobs:
                HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # 2. Forcefully Disable Stack Protector via script
-          scripts/config --file out/.config -d CC_STACKPROTECTOR_STRONG
-          scripts/config --file out/.config -e CC_STACKPROTECTOR_NONE
-
-          # 3. Build Kernel
+          # 2. Build Kernel
+          # Added the CFLAGS variable to the make command
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC=${{ env.PROTON_PATH }}/clang \
                CLANG_TRIPLE=aarch64-linux-gnu- \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               LD=${{ env.PROTON_PATH }}/ld.lld \
-               AR=${{ env.PROTON_PATH }}/llvm-ar \
-               NM=${{ env.PROTON_PATH }}/llvm-nm \
-               OBJCOPY=${{ env.PROTON_PATH }}/llvm-objcopy \
-               OBJDUMP=${{ env.PROTON_PATH }}/llvm-objdump \
-               STRIP=${{ env.PROTON_PATH }}/llvm-strip \
+               LD=ld.lld \
+               AR=llvm-ar \
+               NM=llvm-nm \
+               OBJCOPY=llvm-objcopy \
+               OBJDUMP=llvm-objdump \
+               STRIP=llvm-strip \
                HOSTCC=$HOSTCC \
                HOSTCXX=$HOSTCXX \
-               HOSTLDFLAGS="$HOSTLDFLAGS"
-
+               HOSTLDFLAGS="$HOSTLDFLAGS" \
+               KCFLAGS="$KBUILD_CFLAGS"
+          
       - name: Upload Finished Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Rikka-V5-Clean-Build
+          name: Rikka-V5-Build
           path: out/arch/arm64/boot/Image.gz-dtb
