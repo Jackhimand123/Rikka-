@@ -1,38 +1,72 @@
-name: Kernel Build
-
+name: Rikka V5 Final Build
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Set up proton-clang
-      run: |
-        git clone https://github.com/kdrag0n/proton-clang.git toolchain/proton-clang-master
-        echo "$PWD/toolchain/proton-clang-master/bin" >> $GITHUB_PATH
+      - name: Setup Environment
+        run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm curl git
 
-    - name: Build kernel
-      run: |
-        export PATH="$PWD/toolchain/proton-clang-master/bin:$PATH"
-        export CC=clang
-        export HOSTCC=clang
-        export HOSTCXX=clang++
-        export LD=ld.lld
-        export HOSTLD=ld.lld
-        export CROSS_COMPILE=clang-
-        make O=out ARCH=arm64 config/raphael_defconfig
-        make O=out ARCH=arm64 -j$(nproc)
+      - name: Setup Toolchain
+        run: |
+          mkdir -p toolchain
+          cd toolchain
+          wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
+          tar -xf master.tar.gz
+          # Add to PATH so 'make' finds the binutils
+          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
+          echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: kernel-build
-        path: out/arch/arm64/boot/Image.gz-dtb
+      - name: Compile Kernel
+        run: |
+          mkdir -p out
+          
+          # FORCE FIX: Remove the incompatible Clang flag from the source code
+          # This is the "hammer" that prevents the error you keep seeing
+          sed -i 's/-ftrivial-auto-var-init=zero//g' Makefile
+          
+          export HOSTCC=gcc
+          export HOSTCXX=g++
+          export HOSTLDFLAGS="-fuse-ld=bfd"
+
+          # 1. Generate Config
+          make O=out ARCH=arm64 raphael_defconfig \
+               CC=${{ env.PROTON_PATH }}/clang \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               HOSTCC=$HOSTCC \
+               HOSTCXX=$HOSTCXX \
+               HOSTLDFLAGS="$HOSTLDFLAGS"
+
+          # 2. Build Kernel
+          # We pass the acknowledge flag directly into the CC command itself
+          make -j$(nproc --all) O=out \
+               ARCH=arm64 \
+               CC="${{ env.PROTON_PATH }}/clang -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang" \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+               LD=ld.lld \
+               AR=llvm-ar \
+               NM=llvm-nm \
+               OBJCOPY=llvm-objcopy \
+               OBJDUMP=llvm-objdump \
+               STRIP=llvm-strip \
+               HOSTCC=$HOSTCC \
+               HOSTCXX=$HOSTCXX \
+               HOSTLDFLAGS="$HOSTLDFLAGS"
+
+      - name: Upload Finished Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rikka-V5-Fixed-Build
+          path: out/arch/arm64/boot/Image.gz-dtb
