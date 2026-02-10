@@ -1,66 +1,38 @@
-name: Rikka V5 Final Build
+name: Kernel Build
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+    - name: Checkout source
+      uses: actions/checkout@v4
 
-      - name: Setup Environment
-        run: |
-          git config --global --add safe.directory $GITHUB_WORKSPACE
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc build-essential flex bison libssl-dev libelf-dev \
-            clang lld llvm curl git
+    - name: Set up proton-clang
+      run: |
+        git clone https://github.com/kdrag0n/proton-clang.git toolchain/proton-clang-master
+        echo "$PWD/toolchain/proton-clang-master/bin" >> $GITHUB_PATH
 
-      - name: Setup Toolchain
-        run: |
-          mkdir -p toolchain
-          cd toolchain
-          wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
-          tar -xf master.tar.gz
-          echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
-          echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
+    - name: Build kernel
+      run: |
+        export PATH="$PWD/toolchain/proton-clang-master/bin:$PATH"
+        export CC=clang
+        export HOSTCC=clang
+        export HOSTCXX=clang++
+        export LD=ld.lld
+        export HOSTLD=ld.lld
+        export CROSS_COMPILE=clang-
+        make O=out ARCH=arm64 config/raphael_defconfig
+        make O=out ARCH=arm64 -j$(nproc)
 
-      - name: Compile Kernel (raphael_defconfig)
-        run: |
-          mkdir -p out
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-          export HOSTLD=ld.lld
-          export LD=ld.lld
-          export AR=llvm-ar
-          export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
-          export OBJDUMP=llvm-objdump
-          export STRIP=llvm-strip
-
-          # Generate defconfig
-          make O=out ARCH=arm64 raphael_defconfig \
-               CC=${{ env.PROTON_PATH }}/clang \
-               CROSS_COMPILE=aarch64-linux-gnu- \
-               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX HOSTLD=$HOSTLD
-
-          # Build kernel
-          make -j$(nproc --all) O=out ARCH=arm64 \
-               CC=${{ env.PROTON_PATH }}/clang \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE=aarch64-linux-gnu- \
-               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               LD=$LD AR=$AR NM=$NM \
-               OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
-               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX HOSTLD=$HOSTLD
-
-      - name: Upload Finished Kernel
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rikka-V5-Build
-          path: out/arch/arm64/boot/Image.gz-dtb
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-build
+        path: out/arch/arm64/boot/Image.gz-dtb
