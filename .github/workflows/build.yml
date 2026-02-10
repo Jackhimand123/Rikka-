@@ -23,50 +23,31 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          # We store the path but do NOT add it to the global PATH
           echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
       - name: Compile Kernel
         run: |
           mkdir -p out
           
-          # 1. FORCE FIX: Remove incompatible flags from source
+          # 1. FORCE FIX: Remove incompatible Clang flags from the source
+          # Deletes the trivial-auto flag and the regalloc-advisor flag causing the crash
           sed -i 's/-ftrivial-auto-var-init=zero//g' Makefile
+          grep -rLI 'regalloc-enable-advisor' . | xargs -r sed -i 's/-regalloc-enable-advisor=release//g' || true
           
-          # 2. Set Host tools to system defaults to avoid the 'libc' error
-          # This ensures 'fixdep' is built with the runner's modern GCC/LD
           export HOSTCC=gcc
           export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # 3. Generate Config
-          # We call the compiler by its full absolute path
+          # 2. Generate Config
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                HOSTCC=$HOSTCC \
                HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # 4. Build Kernel
-          # We use absolute paths for every tool to prevent PATH confusion
+          # 3. Build Kernel
+          # We keep the acknowledgement flag for Clang 13+ safety
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC="${{ env.PROTON_PATH }}/clang -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang" \
                LD=${{ env.PROTON_PATH }}/ld.lld \
-               AR=${{ env.PROTON_PATH }}/llvm-ar \
-               NM=${{ env.PROTON_PATH }}/llvm-nm \
-               OBJCOPY=${{ env.PROTON_PATH }}/llvm-objcopy \
-               OBJDUMP=${{ env.PROTON_PATH }}/llvm-objdump \
-               STRIP=${{ env.PROTON_PATH }}/llvm-strip \
-               OBJSIZE=${{ env.PROTON_PATH }}/llvm-size \
-               CROSS_COMPILE=${{ env.PROTON_PATH }}/aarch64-linux-gnu- \
-               CROSS_COMPILE_ARM32=${{ env.PROTON_PATH }}/arm-linux-gnueabi- \
-               HOSTCC=$HOSTCC \
-               HOSTCXX=$HOSTCXX \
-               HOSTLDFLAGS="$HOSTLDFLAGS"
-
-      - name: Upload Finished Kernel
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rikka-V5-Success
-          path: out/arch/arm64/boot/Image.gz-dtb
