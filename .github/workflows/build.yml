@@ -1,10 +1,12 @@
 name: Rikka V5 Final Build
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -15,7 +17,9 @@ jobs:
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm curl git
+          sudo apt-get install -y \
+            bc build-essential flex bison libssl-dev libelf-dev \
+            clang lld llvm curl git
 
       - name: Setup Toolchain
         run: |
@@ -23,47 +27,38 @@ jobs:
           cd toolchain
           wget https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz
-          # Add to GITHUB_PATH so 'make' can find aarch64-linux-gnu-ld
           echo "$(pwd)/proton-clang-master/bin" >> $GITHUB_PATH
           echo "PROTON_PATH=$(pwd)/proton-clang-master/bin" >> $GITHUB_ENV
 
-      - name: Compile Kernel
+      - name: Compile Kernel (raphael_defconfig)
         run: |
           mkdir -p out
           export HOSTCC=gcc
           export HOSTCXX=g++
-          export HOSTLDFLAGS="-fuse-ld=bfd"
-          
-          # The magic flag Clang is screaming for:
-          export KBUILD_CFLAGS="-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang"
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
 
-          # 1. Generate Config
+          # Generate defconfig
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                CROSS_COMPILE=aarch64-linux-gnu- \
                HOSTCC=$HOSTCC \
-               HOSTCXX=$HOSTCXX \
-               HOSTLDFLAGS="$HOSTLDFLAGS"
+               HOSTCXX=$HOSTCXX
 
-          # 2. Build Kernel
-          # Added the CFLAGS variable to the make command
-          make -j$(nproc --all) O=out \
-               ARCH=arm64 \
+          # Build kernel
+          make -j$(nproc --all) O=out ARCH=arm64 \
                CC=${{ env.PROTON_PATH }}/clang \
                CLANG_TRIPLE=aarch64-linux-gnu- \
                CROSS_COMPILE=aarch64-linux-gnu- \
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-               LD=ld.lld \
-               AR=llvm-ar \
-               NM=llvm-nm \
-               OBJCOPY=llvm-objcopy \
-               OBJDUMP=llvm-objdump \
-               STRIP=llvm-strip \
-               HOSTCC=$HOSTCC \
-               HOSTCXX=$HOSTCXX \
-               HOSTLDFLAGS="$HOSTLDFLAGS" \
-               KCFLAGS="$KBUILD_CFLAGS"
-          
+               LD=$LD AR=$AR NM=$NM \
+               OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
+               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX
+
       - name: Upload Finished Kernel
         uses: actions/upload-artifact@v4
         with:
