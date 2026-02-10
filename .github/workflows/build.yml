@@ -35,6 +35,7 @@ jobs:
           mkdir -p out
           export HOSTCC=gcc
           export HOSTCXX=g++
+          export HOSTLD=ld.lld
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
@@ -46,8 +47,7 @@ jobs:
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                CROSS_COMPILE=aarch64-linux-gnu- \
-               HOSTCC=$HOSTCC \
-               HOSTCXX=$HOSTCXX
+               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX HOSTLD=$HOSTLD
 
           # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
@@ -57,7 +57,7 @@ jobs:
                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
                LD=$LD AR=$AR NM=$NM \
                OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
-               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX
+               HOSTCC=$HOSTCC HOSTCXX=$HOSTCXX HOSTLD=$HOSTLD
 
       - name: Upload Finished Kernel
         uses: actions/upload-artifact@v4
