@@ -29,26 +29,28 @@ jobs:
         run: |
           mkdir -p out
           
-          # 1. AGGRESSIVE SOURCE CLEANUP
-          # Remove 'trivial-auto-var-init'
-          sed -i 's/-ftrivial-auto-var-init=zero//g' Makefile || true
+          # GLOBAL CLEANUP: Remove all incompatible custom Proton flags
+          # This hits -hot-cold-split, -regalloc, and other experimental LLVM arguments
+          find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-hot-cold-split=true//g' || true
+          find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-regalloc-enable-advisor=release//g' || true
+          find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-ftrivial-auto-var-init=zero//g' || true
           
-          # Remove 'regalloc-enable-advisor' from EVERYTHING
-          # This is the "Total Wipeout" command
-          find . -type f -exec sed -i 's/-regalloc-enable-advisor=release//g' {} + || true
-          
+          # Also remove common LLVM "advisor" flags that usually follow the ones above
+          find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-mllvm -polly-vectorizer=stripmine//g' || true
+
           export HOSTCC=gcc
           export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # 2. Generate Config
+          # 1. Generate Config
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                HOSTCC=$HOSTCC \
                HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # 3. Build Kernel
+          # 2. Build Kernel
+          # We add the 'knowing-it-will-be-removed' flag as a safety net for Clang 13
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC="${{ env.PROTON_PATH }}/clang -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang" \
@@ -68,5 +70,5 @@ jobs:
       - name: Upload Finished Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Rikka-V5-Build
+          name: Rikka-V5-Success
           path: out/arch/arm64/boot/Image.gz-dtb
