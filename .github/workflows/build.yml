@@ -29,28 +29,32 @@ jobs:
         run: |
           mkdir -p out
           
-          # GLOBAL CLEANUP: Remove all incompatible custom Proton flags
-          # This hits -hot-cold-split, -regalloc, and other experimental LLVM arguments
+          # --- THE MANUAL SCRUBBER ---
+          # 1. Remove the '-mllvm' calls that are crashing Clang
+          find . -type f -name "Makefile*" -o -name "*.kbuild" -o -name "*.inc" | xargs sed -i 's/-mllvm//g' || true
+          
+          # 2. Remove the specific advisor/split flags we found earlier
           find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-hot-cold-split=true//g' || true
           find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-regalloc-enable-advisor=release//g' || true
           find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-ftrivial-auto-var-init=zero//g' || true
           
-          # Also remove common LLVM "advisor" flags that usually follow the ones above
-          find . -type f -name "Makefile*" -o -name "*.kbuild" | xargs sed -i 's/-mllvm -polly-vectorizer=stripmine//g' || true
+          # 3. Clean up common LLVM sub-arguments that might be left behind
+          find . -type f -name "Makefile*" | xargs sed -i 's/-polly-vectorizer=stripmine//g' || true
+          # ---------------------------
 
           export HOSTCC=gcc
           export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # 1. Generate Config
+          # Generate Config
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                HOSTCC=$HOSTCC \
                HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # 2. Build Kernel
-          # We add the 'knowing-it-will-be-removed' flag as a safety net for Clang 13
+          # Build Kernel
+          # We pass the 'knowing-it-will-be-removed' flag directly into CC
           make -j$(nproc --all) O=out \
                ARCH=arm64 \
                CC="${{ env.PROTON_PATH }}/clang -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang" \
@@ -70,5 +74,5 @@ jobs:
       - name: Upload Finished Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Rikka-V5-Success
+          name: Rikka-V5-Final-Success
           path: out/arch/arm64/boot/Image.gz-dtb
