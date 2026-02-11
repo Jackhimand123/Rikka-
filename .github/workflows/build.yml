@@ -39,18 +39,26 @@ jobs:
           export HOSTCXX=g++
           export HOSTLDFLAGS="-fuse-ld=bfd"
 
-          # 2. GENERATE CONFIG
+          # 2. GENERATE INITIAL CONFIG
           make O=out ARCH=arm64 raphael_defconfig \
                CC=${{ env.PROTON_PATH }}/clang \
                HOSTCC=$HOSTCC \
                HOSTCXX=$HOSTCXX \
                HOSTLDFLAGS="$HOSTLDFLAGS"
 
-          # 3. FIX BACKLIGHT SYMBOLS (The New Fix)
-          # This enables the missing functions the linker is looking for
+          # 3. FIX BACKLIGHT SYMBOLS & RE-SYNC
+          # Enable the classes
           scripts/config --file out/.config -e BACKLIGHT_CLASS_DEVICE
           scripts/config --file out/.config -e BACKLIGHT_LCD_SUPPORT
           scripts/config --file out/.config -e LCD_CLASS_DEVICE
+          
+          # IMPORTANT: This command answers "default" to all new questions
+          # to prevent the "aborted!" error you just saw.
+          make O=out ARCH=arm64 olddefconfig \
+               CC=${{ env.PROTON_PATH }}/clang \
+               HOSTCC=$HOSTCC \
+               HOSTCXX=$HOSTCXX \
+               HOSTLDFLAGS="$HOSTLDFLAGS"
 
           # 4. BUILD KERNEL
           make -j$(nproc --all) O=out \
